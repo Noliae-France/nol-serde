@@ -1,0 +1,69 @@
+// nol.serde — sérialisation/désérialisation fiable, en pur Nolc.
+//
+// Fondation du module : encodage JSON des valeurs scalaires et de listes de
+// chaînes. Les formats additionnels (JSON Lines, MessagePack, TOML, YAML, CBOR)
+// et le décodage typé arrivent dans les versions suivantes — voir README.
+// NB : l'échappement complet des chaînes JSON (guillemets, contrôle) est au
+// programme de la v0.2 ; cette fondation suppose des chaînes déjà sûres.
+
+// Encode un booléen JSON.
+fn json_bool(b: Bool) -> Text {
+    if b {
+        return "true"
+    }
+    return "false"
+}
+
+// Encode un entier JSON.
+fn json_entier(n: Int) -> Text {
+    return text(n)
+}
+
+// Encode une chaîne JSON (entourée de guillemets).
+fn json_chaine(s: Text) -> Text {
+    return "\"" + s + "\""
+}
+
+// Encode une liste de chaînes en tableau JSON : ["a","b","c"].
+fn json_liste_chaines(xs: List<Text>) -> Text {
+    var out = "["
+    var premier = true
+    for x in xs {
+        if not premier {
+            out = out + ","
+        }
+        out = out + json_chaine(x)
+        premier = false
+    }
+    return out + "]"
+}
+
+// Encode un couple clé/valeur-chaîne en fragment d'objet JSON : "cle":"valeur".
+fn json_champ_chaine(cle: Text, valeur: Text) -> Text {
+    return json_chaine(cle) + ":" + json_chaine(valeur)
+}
+
+// ============================ TESTS ============================
+
+fn test_scalaires() {
+    assert(json_bool(true) == "true", "bool true")
+    assert(json_bool(false) == "false", "bool false")
+    assert(json_entier(42) == "42", "entier")
+    assert(json_chaine("abc") == "\"abc\"", "chaine")
+}
+
+fn test_liste() {
+    var xs: List<Text> = []
+    push(xs, "a")
+    push(xs, "b")
+    assert(json_liste_chaines(xs) == "[\"a\",\"b\"]", "tableau json")
+}
+
+fn test_liste_vide() {
+    var xs: List<Text> = []
+    assert(json_liste_chaines(xs) == "[]", "tableau vide")
+}
+
+fn test_champ() {
+    assert(json_champ_chaine("nom", "Alice") == "\"nom\":\"Alice\"", "champ objet")
+}

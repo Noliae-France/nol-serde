@@ -1,0 +1,9 @@
+[projet]
+nom = "nol-serde"
+version = "0.1.0"
+entree = "src/lib.nol"
+auteur = "Bastien LANGUEDOC"
+licence = "MIT"
+description = "Serialisation/deserialisation fiable : JSON, JSON Lines, MessagePack, TOML, YAML, CBOR."
+
+[dependances]
