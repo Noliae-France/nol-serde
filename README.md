@@ -15,9 +15,19 @@ Sérialisation / désérialisation fiable en pur [Nolc](https://github.com/Nolia
 
 MIT © 2026 Bastien LANGUEDOC.
 
-## Livré (v0.1)
-Encodage JSON des scalaires et listes (`json_bool`, `json_entier`, `json_chaine`, `json_liste_chaines`, `json_champ_chaine`).
+## Livré (v0.2)
+Encodeur JSON **correct** : échappement complet des chaînes (`json_echappe` : `"`, `\\`, saut de ligne, retour chariot, tabulation) et composition de structures imbriquées.
+- Scalaires : `json_null`, `json_bool`, `json_entier`, `json_chaine`, `json_brut`
+- Composition : `json_tableau`, `json_objet`, `json_champ`, `json_tableau_chaines`
+- Champs typés : `json_champ_chaine`, `json_champ_entier`, `json_champ_bool`
+
+```nol
+var champs: List<Text> = []
+push(champs, json_champ_chaine("nom", "Alice"))
+push(champs, json_champ_entier("age", 30))
+json_objet(champs)   // => {"nom":"Alice","age":30}
+```
 
 ## Feuille de route
-- Échappement JSON complet + décodage typé
+- Décodage / parseur JSON typé
 - **JSON Lines, MessagePack, TOML, YAML, CBOR**

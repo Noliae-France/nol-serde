@@ -1,69 +1,156 @@
-// nol.serde — sérialisation/désérialisation fiable, en pur Nolc.
+// nol.serde — sérialisation / désérialisation fiable, en pur Nolc.
 //
-// Fondation du module : encodage JSON des valeurs scalaires et de listes de
-// chaînes. Les formats additionnels (JSON Lines, MessagePack, TOML, YAML, CBOR)
-// et le décodage typé arrivent dans les versions suivantes — voir README.
-// NB : l'échappement complet des chaînes JSON (guillemets, contrôle) est au
-// programme de la v0.2 ; cette fondation suppose des chaînes déjà sûres.
+// v0.2 : encodeur JSON CORRECT (échappement complet des chaînes) et composition
+// d'objets/tableaux imbriqués. Le décodage typé et les formats additionnels
+// (JSON Lines, MessagePack, TOML, YAML, CBOR) arrivent ensuite — voir README.
+//
+// Choix : pas d'arbre de valeurs récursif (un enum à charge utile récursif
+// heurte un bug codegen connu de Nolc). On expose plutôt une API de COMPOSITION
+// où chaque fragment est déjà du JSON valide, assemblé en objets et tableaux.
 
-// Encode un booléen JSON.
+// Échappe une chaîne pour insertion entre guillemets JSON. L'antislash est
+// traité EN PREMIER pour ne pas ré-échapper les séquences produites ensuite.
+fn json_echappe(s: Text) -> Text {
+    var r = replace(s, "\\", "\\\\")
+    r = replace(r, "\"", "\\\"")
+    r = replace(r, "\n", "\\n")
+    r = replace(r, "\r", "\\r")
+    r = replace(r, "\t", "\\t")
+    return r
+}
+
+// ---- Valeurs scalaires (renvoient du JSON valide) ----
+
+fn json_null() -> Text {
+    return "null"
+}
 fn json_bool(b: Bool) -> Text {
     if b {
         return "true"
     }
     return "false"
 }
-
-// Encode un entier JSON.
 fn json_entier(n: Int) -> Text {
     return text(n)
 }
-
-// Encode une chaîne JSON (entourée de guillemets).
 fn json_chaine(s: Text) -> Text {
-    return "\"" + s + "\""
+    return "\"" + json_echappe(s) + "\""
+}
+// Insère une valeur déjà encodée (nombre à virgule, sous-document…) telle quelle.
+fn json_brut(deja_json: Text) -> Text {
+    return deja_json
 }
 
-// Encode une liste de chaînes en tableau JSON : ["a","b","c"].
-fn json_liste_chaines(xs: List<Text>) -> Text {
+// ---- Composition (les fragments passés sont déjà du JSON valide) ----
+
+// Tableau JSON à partir d'éléments déjà encodés : [e1,e2,...].
+fn json_tableau(elements: List<Text>) -> Text {
     var out = "["
     var premier = true
-    for x in xs {
+    for e in elements {
         if not premier {
             out = out + ","
         }
-        out = out + json_chaine(x)
+        out = out + e
         premier = false
     }
     return out + "]"
 }
 
-// Encode un couple clé/valeur-chaîne en fragment d'objet JSON : "cle":"valeur".
+// Un champ d'objet : "clé":<valeur déjà encodée>.
+fn json_champ(cle: Text, valeur_encodee: Text) -> Text {
+    return json_chaine(cle) + ":" + valeur_encodee
+}
+
+// Objet JSON à partir de champs déjà rendus (via json_champ*) : {c1,c2,...}.
+fn json_objet(champs: List<Text>) -> Text {
+    var out = "{"
+    var premier = true
+    for c in champs {
+        if not premier {
+            out = out + ","
+        }
+        out = out + c
+        premier = false
+    }
+    return out + "}"
+}
+
+// ---- Champs typés (raccourcis fréquents) ----
+
 fn json_champ_chaine(cle: Text, valeur: Text) -> Text {
-    return json_chaine(cle) + ":" + json_chaine(valeur)
+    return json_champ(cle, json_chaine(valeur))
+}
+fn json_champ_entier(cle: Text, n: Int) -> Text {
+    return json_champ(cle, json_entier(n))
+}
+fn json_champ_bool(cle: Text, b: Bool) -> Text {
+    return json_champ(cle, json_bool(b))
+}
+
+// Tableau de chaînes (chaque élément est échappé) : ["a","b"].
+fn json_tableau_chaines(xs: List<Text>) -> Text {
+    var encodes: List<Text> = []
+    for x in xs {
+        push(encodes, json_chaine(x))
+    }
+    return json_tableau(encodes)
 }
 
 // ============================ TESTS ============================
 
-fn test_scalaires() {
-    assert(json_bool(true) == "true", "bool true")
-    assert(json_bool(false) == "false", "bool false")
-    assert(json_entier(42) == "42", "entier")
-    assert(json_chaine("abc") == "\"abc\"", "chaine")
+fn test_echappement() {
+    // Guillemet, antislash, saut de ligne, tabulation.
+    assert(json_chaine("a\"b") == "\"a\\\"b\"", "guillemet echappe")
+    assert(json_chaine("a\\b") == "\"a\\\\b\"", "antislash echappe")
+    assert(json_chaine("a\nb") == "\"a\\nb\"", "saut de ligne echappe")
+    assert(json_chaine("a\tb") == "\"a\\tb\"", "tabulation echappee")
+    assert(json_chaine("simple") == "\"simple\"", "chaine simple")
 }
 
-fn test_liste() {
+fn test_scalaires() {
+    assert(json_null() == "null", "null")
+    assert(json_bool(true) == "true", "true")
+    assert(json_bool(false) == "false", "false")
+    assert(json_entier(-7) == "-7", "entier negatif")
+}
+
+fn test_tableau() {
+    var vide: List<Text> = []
+    assert(json_tableau_chaines(vide) == "[]", "tableau vide")
     var xs: List<Text> = []
     push(xs, "a")
     push(xs, "b")
-    assert(json_liste_chaines(xs) == "[\"a\",\"b\"]", "tableau json")
+    assert(json_tableau_chaines(xs) == "[\"a\",\"b\"]", "tableau de chaines")
+    // json_brut : insertion d'un nombre à virgule déjà rendu.
+    var nums: List<Text> = []
+    push(nums, json_brut("1.5"))
+    push(nums, json_entier(2))
+    assert(json_tableau(nums) == "[1.5,2]", "valeurs brutes")
 }
 
-fn test_liste_vide() {
+fn test_objet() {
+    var champs: List<Text> = []
+    push(champs, json_champ_chaine("nom", "Alice"))
+    push(champs, json_champ_entier("age", 30))
+    push(champs, json_champ_bool("actif", true))
+    assert(json_objet(champs) == "{\"nom\":\"Alice\",\"age\":30,\"actif\":true}", "objet compose")
+}
+
+fn test_imbrique() {
+    // { "tags": ["x","y"], "meta": { "n": 1 } }
+    var sous: List<Text> = []
+    push(sous, json_champ_entier("n", 1))
+    var racine: List<Text> = []
+    push(racine, json_champ("tags", json_tableau_chaines(deux("x", "y"))))
+    push(racine, json_champ("meta", json_objet(sous)))
+    assert(json_objet(racine) == "{\"tags\":[\"x\",\"y\"],\"meta\":{\"n\":1}}", "structure imbriquee")
+}
+
+// Petite aide de test : liste de deux chaînes.
+fn deux(a: Text, b: Text) -> List<Text> {
     var xs: List<Text> = []
-    assert(json_liste_chaines(xs) == "[]", "tableau vide")
-}
-
-fn test_champ() {
-    assert(json_champ_chaine("nom", "Alice") == "\"nom\":\"Alice\"", "champ objet")
+    push(xs, a)
+    push(xs, b)
+    return xs
 }
