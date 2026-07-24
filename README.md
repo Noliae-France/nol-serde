@@ -28,6 +28,17 @@ push(champs, json_champ_entier("age", 30))
 json_objet(champs)   // => {"nom":"Alice","age":30}
 ```
 
+## Décodeur (v0.3)
+- `json_valide(s)` : parseur récursif-descendant complet (valide tout JSON)
+- `json_lire_texte(s, cle)`, `json_lire_entier`, `json_lire_bool`, `json_lire_brut` : extraction typée d'un champ d'objet (redescente possible dans les sous-objets)
+- `json_desechappe(contenu)`
+
+```nol
+let doc = "{\"nom\": \"Alice\", \"age\": 30}"
+json_lire_texte(doc, "nom")    // some("Alice")
+json_lire_entier(doc, "age")   // some(30)
+```
+
 ## Feuille de route
 - Décodage / parseur JSON typé
 - **JSON Lines, MessagePack, TOML, YAML, CBOR**

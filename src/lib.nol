@@ -97,6 +97,286 @@ fn json_tableau_chaines(xs: List<Text>) -> Text {
     return json_tableau(encodes)
 }
 
+// ============================ DÉCODEUR JSON ============================
+//
+// Parseur récursif-descendant fonctionnel : chaque fonction consomme depuis un
+// index et renvoie l'index APRÈS la valeur (ou -1 si invalide). Pas d'arbre de
+// valeurs (Nolc n'a pas d'enum récursif) : on valide, puis on extrait les
+// champs à la demande (le cas d'usage courant : lire une réponse JSON).
+
+fn est_espace(c: Text) -> Bool {
+    return c == " " or c == "\t" or c == "\n" or c == "\r"
+}
+fn est_chiffre(c: Text) -> Bool {
+    return unwrap_or(find("0123456789", c), -1) >= 0
+}
+fn saute_espaces(s: Text, i: Int) -> Int {
+    var j = i
+    while j < len(s) and est_espace(char_at(s, j)) {
+        j += 1
+    }
+    return j
+}
+fn commence_par(s: Text, i: Int, mot: Text) -> Bool {
+    return i + len(mot) <= len(s) and sub(s, i, len(mot)) == mot
+}
+
+// Consomme une chaîne « "..." » (gère les échappements). Renvoie l'index après
+// le guillemet fermant, ou -1.
+fn json_p_chaine(s: Text, i: Int) -> Int {
+    if i >= len(s) or char_at(s, i) != "\"" {
+        return -1
+    }
+    var j = i + 1
+    while j < len(s) {
+        let c = char_at(s, j)
+        if c == "\\" {
+            j += 2
+        } else if c == "\"" {
+            return j + 1
+        } else {
+            j += 1
+        }
+    }
+    return -1
+}
+
+// Consomme un nombre JSON (signe, entier, fraction, exposant). Renvoie -1 si
+// mal formé.
+fn json_p_nombre(s: Text, i: Int) -> Int {
+    var j = i
+    if j < len(s) and char_at(s, j) == "-" {
+        j += 1
+    }
+    let d0 = j
+    while j < len(s) and est_chiffre(char_at(s, j)) {
+        j += 1
+    }
+    if j == d0 {
+        return -1
+    }
+    if j < len(s) and char_at(s, j) == "." {
+        j += 1
+        let f0 = j
+        while j < len(s) and est_chiffre(char_at(s, j)) {
+            j += 1
+        }
+        if j == f0 {
+            return -1
+        }
+    }
+    if j < len(s) and (char_at(s, j) == "e" or char_at(s, j) == "E") {
+        j += 1
+        if j < len(s) and (char_at(s, j) == "+" or char_at(s, j) == "-") {
+            j += 1
+        }
+        let e0 = j
+        while j < len(s) and est_chiffre(char_at(s, j)) {
+            j += 1
+        }
+        if j == e0 {
+            return -1
+        }
+    }
+    return j
+}
+
+// Consomme une valeur JSON quelconque (récursif via tableau/objet).
+fn json_p_valeur(s: Text, i0: Int) -> Int {
+    let i = saute_espaces(s, i0)
+    if i >= len(s) {
+        return -1
+    }
+    let c = char_at(s, i)
+    if c == "\"" {
+        return json_p_chaine(s, i)
+    }
+    if c == "{" {
+        return json_p_objet(s, i)
+    }
+    if c == "[" {
+        return json_p_tableau(s, i)
+    }
+    if c == "-" or est_chiffre(c) {
+        return json_p_nombre(s, i)
+    }
+    if commence_par(s, i, "true") {
+        return i + 4
+    }
+    if commence_par(s, i, "false") {
+        return i + 5
+    }
+    if commence_par(s, i, "null") {
+        return i + 4
+    }
+    return -1
+}
+
+fn json_p_tableau(s: Text, i: Int) -> Int {
+    var j = saute_espaces(s, i + 1)
+    if j < len(s) and char_at(s, j) == "]" {
+        return j + 1
+    }
+    var boucle = true
+    while boucle {
+        j = json_p_valeur(s, j)
+        if j < 0 {
+            return -1
+        }
+        j = saute_espaces(s, j)
+        if j >= len(s) {
+            return -1
+        }
+        let c = char_at(s, j)
+        if c == "," {
+            j = j + 1
+        } else if c == "]" {
+            return j + 1
+        } else {
+            return -1
+        }
+    }
+    return -1
+}
+
+fn json_p_objet(s: Text, i: Int) -> Int {
+    var j = saute_espaces(s, i + 1)
+    if j < len(s) and char_at(s, j) == "}" {
+        return j + 1
+    }
+    var boucle = true
+    while boucle {
+        j = saute_espaces(s, j)
+        let fc = json_p_chaine(s, j)
+        if fc < 0 {
+            return -1
+        }
+        j = saute_espaces(s, fc)
+        if j >= len(s) or char_at(s, j) != ":" {
+            return -1
+        }
+        j = json_p_valeur(s, j + 1)
+        if j < 0 {
+            return -1
+        }
+        j = saute_espaces(s, j)
+        if j >= len(s) {
+            return -1
+        }
+        let c = char_at(s, j)
+        if c == "," {
+            j = j + 1
+        } else if c == "}" {
+            return j + 1
+        } else {
+            return -1
+        }
+    }
+    return -1
+}
+
+// La chaîne est-elle un document JSON valide (une seule valeur, rien après) ?
+fn json_valide(s: Text) -> Bool {
+    let fin = json_p_valeur(s, 0)
+    if fin < 0 {
+        return false
+    }
+    return saute_espaces(s, fin) == len(s)
+}
+
+// Déséchappe le CONTENU d'une chaîne JSON (sans les guillemets).
+fn json_desechappe(contenu: Text) -> Text {
+    var r = replace(contenu, "\\\"", "\"")
+    r = replace(r, "\\n", "\n")
+    r = replace(r, "\\r", "\r")
+    r = replace(r, "\\t", "\t")
+    r = replace(r, "\\/", "/")
+    r = replace(r, "\\\\", "\\")
+    return r
+}
+
+// Valeur BRUTE (sous-chaîne JSON) d'un champ au niveau supérieur d'un objet.
+fn json_lire_brut(s: Text, cle: Text) -> Option<Text> {
+    var i = saute_espaces(s, 0)
+    if i >= len(s) or char_at(s, i) != "{" {
+        return none
+    }
+    i = saute_espaces(s, i + 1)
+    if i < len(s) and char_at(s, i) == "}" {
+        return none
+    }
+    var boucle = true
+    while boucle {
+        i = saute_espaces(s, i)
+        let fc = json_p_chaine(s, i)
+        if fc < 0 {
+            return none
+        }
+        let cle_brute = sub(s, i + 1, fc - i - 2)
+        i = saute_espaces(s, fc)
+        if i >= len(s) or char_at(s, i) != ":" {
+            return none
+        }
+        let debut_val = saute_espaces(s, i + 1)
+        let fin_val = json_p_valeur(s, debut_val)
+        if fin_val < 0 {
+            return none
+        }
+        if cle_brute == cle {
+            return some(sub(s, debut_val, fin_val - debut_val))
+        }
+        i = saute_espaces(s, fin_val)
+        if i >= len(s) {
+            return none
+        }
+        let c = char_at(s, i)
+        if c == "," {
+            i = i + 1
+        } else {
+            return none
+        }
+    }
+    return none
+}
+
+// Champ chaîne (déséchappé) : none si absent ou pas une chaîne.
+fn json_lire_texte(s: Text, cle: Text) -> Option<Text> {
+    let v = json_lire_brut(s, cle)
+    if not has(v) {
+        return none
+    }
+    let brut = unwrap_or(v, "")
+    if len(brut) < 2 or char_at(brut, 0) != "\"" {
+        return none
+    }
+    return some(json_desechappe(sub(brut, 1, len(brut) - 2)))
+}
+
+// Champ entier : none si absent ou non entier.
+fn json_lire_entier(s: Text, cle: Text) -> Option<Int> {
+    let v = json_lire_brut(s, cle)
+    if not has(v) {
+        return none
+    }
+    return parse_int(unwrap_or(v, ""))
+}
+
+// Champ booléen : none si absent ou non booléen.
+fn json_lire_bool(s: Text, cle: Text) -> Option<Bool> {
+    let v = json_lire_brut(s, cle)
+    if not has(v) {
+        return none
+    }
+    let brut = unwrap_or(v, "")
+    if brut == "true" {
+        return some(true)
+    }
+    if brut == "false" {
+        return some(false)
+    }
+    return none
+}
+
 // ============================ TESTS ============================
 
 fn test_echappement() {
@@ -153,4 +433,48 @@ fn deux(a: Text, b: Text) -> List<Text> {
     push(xs, a)
     push(xs, b)
     return xs
+}
+
+// ---- Décodeur ----
+
+fn test_valide() {
+    assert(json_valide("null"), "null")
+    assert(json_valide("true"), "true")
+    assert(json_valide("-12.5e3"), "nombre")
+    assert(json_valide("\"abc\""), "chaine")
+    assert(json_valide("[1, 2, 3]"), "tableau")
+    assert(json_valide("{\"a\": 1, \"b\": [true, null]}"), "objet imbrique")
+    assert(json_valide("  { \"x\" : \"y\" }  "), "espaces")
+}
+
+fn test_invalide() {
+    assert(not json_valide("{"), "accolade non fermee")
+    assert(not json_valide("[1, 2,]"), "virgule finale")
+    assert(not json_valide("{\"a\" 1}"), "deux-points manquant")
+    assert(not json_valide("truex"), "residu")
+    assert(not json_valide("--1"), "double signe")
+    assert(not json_valide(""), "vide")
+}
+
+fn test_extraction() {
+    let doc = "{\"nom\": \"Alice\", \"age\": 30, \"actif\": true, \"note\": null}"
+    assert(unwrap_or(json_lire_texte(doc, "nom"), "") == "Alice", "texte")
+    assert(unwrap_or(json_lire_entier(doc, "age"), -1) == 30, "entier")
+    assert(unwrap_or(json_lire_bool(doc, "actif"), false), "bool")
+    assert(unwrap_or(json_lire_brut(doc, "note"), "") == "null", "champ brut null")
+    assert(not has(json_lire_texte(doc, "absent")), "champ absent")
+    assert(not has(json_lire_texte(doc, "age")), "age n'est pas un texte")
+}
+
+fn test_extraction_echappement() {
+    let doc = "{\"msg\": \"dit \\\"salut\\\"\\nfin\"}"
+    assert(unwrap_or(json_lire_texte(doc, "msg"), "") == "dit \"salut\"\nfin", "desechappement")
+}
+
+fn test_extraction_imbrique() {
+    let doc = "{\"meta\": {\"n\": 1}, \"tags\": [\"a\", \"b\"]}"
+    assert(unwrap_or(json_lire_brut(doc, "meta"), "") == "{\"n\": 1}", "sous-objet brut")
+    assert(unwrap_or(json_lire_brut(doc, "tags"), "") == "[\"a\", \"b\"]", "tableau brut")
+    // On peut redescendre dans le sous-objet extrait.
+    assert(unwrap_or(json_lire_entier(unwrap_or(json_lire_brut(doc, "meta"), ""), "n"), -1) == 1, "descente")
 }

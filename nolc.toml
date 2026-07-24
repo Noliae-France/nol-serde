@@ -1,9 +1,9 @@
 [projet]
 nom = "nol-serde"
-version = "0.1.0"
+version = "0.3.0"
 entree = "src/lib.nol"
 auteur = "daliranas <bastien@languedoc.ovh>"
 licence = "MIT"
-description = "Sérialisation/désérialisation fiable : JSON, JSON Lines, MessagePack, TOML, YAML, CBOR."
+description = "JSON fiable en pur Nolc : encodeur (échappement correct) et décodeur (parseur, validation, extraction typée)."
 
 [dependances]
