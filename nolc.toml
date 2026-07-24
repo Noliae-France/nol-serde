@@ -2,7 +2,7 @@
 nom = "nol-serde"
 version = "0.1.0"
 entree = "src/lib.nol"
-auteur = "Bastien LANGUEDOC"
+auteur = "daliranas <bastien@languedoc.ovh>"
 licence = "MIT"
 description = "Serialisation/deserialisation fiable : JSON, JSON Lines, MessagePack, TOML, YAML, CBOR."
 
